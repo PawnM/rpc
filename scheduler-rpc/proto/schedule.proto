@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+option go_package = "./;scheduler_rpc";
+package scheduler;
+
+service Scheduler {
+    rpc Schedule(ScheduleRequest) returns (ScheduleReply){}
+    rpc UpadateNodeResource(NodeResourceUpdate) returns(NodeResourceReply){}
+}
+message NodeResource{
+    string nodeName = 1;
+    int64 haveCpu = 2;
+    int64 haveMem = 3;
+    string address = 4;
+    string port = 5;
+}
+message NodeResourceUpdate{
+    repeated NodeResource list = 1;
+    string Action = 2;
+}
+message NodeResourceReply{
+    int64 state = 1;
+}
+
+
+//message funcMessage{
+//    int64 requestId = 1;
+//    string funcName = 2;
+//    int64 requireCpu = 3;
+//    int64 requireMem = 4;
+//}
+message ScheduleRequest {
+    int64 requestId = 1;
+    string funcName = 2;
+    int64 requireCpu = 3;
+    int64 requireMem = 4;
+    string dispatcherAddr = 5;
+}
+
+message ScheduleReply {
+    int64 requestId = 1;
+    string funcName = 2;
+    string deployPosition = 3;
+}

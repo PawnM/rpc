@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+option go_package = "./;coordinator_rpc";
+package dispatcher;
+
+// 1. 请求分发
+// 2. 调用扩容请求
+// 3. 更新调度器视图
+service coordinator {
+  rpc AddNodeInfo(NodeInfoUpdate) returns (NodeUpdateReply){}
+}
+message NodeInfoUpdate{
+  string NodeName = 1;
+  string Address = 2;
+}
+message NodeUpdateReply{
+  int64 state = 1;
+}
+message FuncInfoUpdate{
+
+}
+message FuncUpdateReply{
+
+}
+
+message DispatcherInfoUpdate{
+
+}
+message DispatcherUpdateReply{
+  
+}
+
+
