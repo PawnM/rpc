@@ -10,6 +10,7 @@ type SchedulerView struct {
 	items []*SchedulerInfo
 	lock  *sync.Mutex
 	index int
+	l     int
 }
 
 func NewSchedulerView() *SchedulerView {
@@ -17,13 +18,19 @@ func NewSchedulerView() *SchedulerView {
 		items: make([]*SchedulerInfo, 0),
 		lock:  &sync.Mutex{},
 		index: 0,
+		l:     0,
 	}
 }
-
+func (sv *SchedulerView) GetLen() int {
+	sv.lock.Lock()
+	defer sv.lock.Unlock()
+	return sv.l
+}
 func (sv *SchedulerView) Add(s *SchedulerInfo) {
 	sv.lock.Lock()
 	defer sv.lock.Unlock()
 	sv.items = append(sv.items, s)
+	sv.l++
 }
 
 func (sv *SchedulerView) Delete(s *SchedulerInfo) {
@@ -37,6 +44,7 @@ func (sv *SchedulerView) Delete(s *SchedulerInfo) {
 		}
 	}
 	sv.items = result
+	sv.l--
 }
 func (sv *SchedulerView) GetSchedulerAddr() string {
 	sv.lock.Lock()

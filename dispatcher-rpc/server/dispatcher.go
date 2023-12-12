@@ -15,7 +15,10 @@ var (
 	funcView      = internal.NewFuncView() // 支持查找变更 func
 	SchedulerView = internal.NewSchedulerView()
 	localIp       = getLocalIPv4().String()
-	ConnCache     = NewLRUCache(20)
+	connQueue     = NewConnQueue()
+	firstInit     = true
+	//requestIdList = make([]int64, 0)
+	//lock          = &sync.Mutex{}
 )
 
 type DispatcherServer struct{}
@@ -27,6 +30,7 @@ func (d DispatcherServer) Statis(ctx context.Context, request *pb.UserRequest) (
 		Destination: "result",
 	}, nil
 }
+
 func (d DispatcherServer) UpdateInstanceView(ctx context.Context, update *pb.InstanceUpdate) (*pb.InstanceUpdateReply, error) {
 	list := update.List
 	for _, v := range list {
@@ -47,40 +51,56 @@ func (d DispatcherServer) UpdateInstanceView(ctx context.Context, update *pb.Ins
 		State: 0,
 	}, nil
 }
-
+func randonInitConnection() {
+	for i := 0; i < 20; i++ {
+		saddr := SchedulerView.GetSchedulerAddr()
+		conn, _ := grpc.Dial(fmt.Sprintf("%s:16445", saddr), grpc.WithInsecure())
+		connQueue.Enqueue(conn)
+	}
+}
+func addConn(n int) {
+	for i := 0; i < n; i++ {
+		saddr := SchedulerView.GetSchedulerAddr()
+		conn, _ := grpc.Dial(fmt.Sprintf("%s:16445", saddr), grpc.WithInsecure())
+		connQueue.Enqueue(conn)
+	}
+}
 func (d DispatcherServer) Dispatch(ctx context.Context, userRequests *pb.UserRequestList) (*pb.UserRequestReply, error) {
 	t := time.Now().UnixNano() / 1e6
-	for _, request := range userRequests.GetList() {
-
+	per_scheduler := 20
+	schedulerRequests := make([]*pb.ScheduleRequest, 0)
+	for _, request := range userRequests.List {
 		result := funcView.Dispatch(request.FuncName)
 		if result == "" {
 			log.Printf("Need to scale up -%d-%s at -%d\n", request.RequestId, request.FuncName, t)
-			//fmt.Printf("Need to scale up -%d-%s at -%d\n", request.RequestId, request.FuncName, time.Now().UnixNano()/1e6)
-			// scale
-			schedulerAddr := SchedulerView.GetSchedulerAddr()
-
-			conn := ConnCache.Get(schedulerAddr)
-			if conn != nil {
-				fmt.Printf("Cache hitted!\n")
-			} else {
-				conn, _ = grpc.Dial(fmt.Sprintf("%s:16445", schedulerAddr), grpc.WithInsecure())
-				ConnCache.Put(schedulerAddr, conn)
-				fmt.Printf("Cache miss!\n")
-			}
-
-			client := pb.NewSchedulerClient(conn)
-			_, _ = client.Schedule(context.Background(), &pb.ScheduleRequest{
+			//lock.Lock()
+			//requestIdList = append(requestIdList, request.RequestId)
+			//lock.Unlock()
+			schedulerRequests = append(schedulerRequests, &pb.ScheduleRequest{
 				RequestId:      request.RequestId,
 				FuncName:       request.FuncName,
 				RequireCpu:     request.RequireCpu,
 				RequireMem:     request.RequireMem,
 				DispatcherAddr: localIp,
 			})
-			//fmt.Printf("Need to scale up %d:%s to %s\n", request.RequestId, request.FuncName, schedulerAddr)
-			// choose a scheudler
-		} else {
-			//fmt.Printf("Route request %d:%s to %s\n", request.RequestId, request.FuncName, result)
+			//fmt.Printf("len:%d\n", len(schedulerRequests))
+			if len(schedulerRequests) >= per_scheduler {
+				c := connQueue.Dequeue()
+				client := pb.NewSchedulerClient(c)
+				_, _ = client.Schedule(context.Background(), &pb.ScheduleRequestList{List: schedulerRequests})
+				go addConn(2)
+				schedulerRequests = make([]*pb.ScheduleRequest, 0)
+			}
 		}
+	}
+	if len(schedulerRequests) > 0 {
+		c := connQueue.Dequeue()
+		client := pb.NewSchedulerClient(c)
+		_, _ = client.Schedule(context.Background(), &pb.ScheduleRequestList{List: schedulerRequests})
+		go addConn(2)
+		//lock.Lock()
+		//fmt.Printf("cnt: %d\n", uniqueKeyCount(requestIdList))
+		//lock.Unlock()
 	}
 
 	return &pb.UserRequestReply{
@@ -90,13 +110,17 @@ func (d DispatcherServer) Dispatch(ctx context.Context, userRequests *pb.UserReq
 	}, nil
 }
 func (d DispatcherServer) UpdateSchedulerView(ctx context.Context, update *pb.SchedulerViewUpdate) (*pb.SchedulerViewUpdateReply, error) {
-
+	//fmt.Printf("Add new scheduelr \n")
 	list := update.List
 	for _, v := range list {
 		item := &internal.SchedulerInfo{NodeName: v.NodeName, Address: v.Address}
 		if update.Action == "ADD" {
 			fmt.Printf("Add new scheduelr %s:%s\n", item.NodeName, item.Address)
 			SchedulerView.Add(item)
+			if firstInit && SchedulerView.GetLen() >= 20 {
+				go addConn(20)
+				firstInit = false
+			}
 		} else if update.Action == "DELETE" {
 			SchedulerView.Delete(item)
 		}
@@ -117,6 +141,14 @@ func getLocalIPv4() net.IP {
 			}
 		}
 	}
-
 	return nil
+}
+func uniqueKeyCount(arr []int64) int {
+	uniqueKeys := make(map[int64]struct{})
+
+	for _, item := range arr {
+		uniqueKeys[item] = struct{}{}
+	}
+
+	return len(uniqueKeys)
 }

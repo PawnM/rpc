@@ -7,26 +7,23 @@ import (
 	pb "coordiantor_test/proto"
 	"fmt"
 	"google.golang.org/grpc"
+	"log"
 	"math/rand"
 	"os"
 	"strconv"
 
-	"log"
 	"sync"
 	"time"
 )
 
 func main() {
-	//informer.Dispatcher_map["180"] = "127.0.0.1"
 	// 1. 告诉dispatcher scheduler的地址
 	schelist := make([]*pb.SchedulerInfo, 0)
-	sl := make([]string, 0)
 	for k, v := range informer.Scheduler_map {
 		schelist = append(schelist, &pb.SchedulerInfo{
 			NodeName: k,
 			Address:  v,
 		})
-		sl = append(sl, v)
 	}
 	for k, v := range informer.Dispatcher_map {
 		connDispatcher, _ := grpc.Dial(v+":16444", grpc.WithInsecure())
@@ -35,6 +32,11 @@ func main() {
 		resp, _ := clientDispatcher.UpdateSchedulerView(context.Background(), &pb.SchedulerViewUpdate{List: schelist, Action: "ADD"})
 		log.Printf("Update Scheduler View %s resp: %d", k, resp.State)
 	}
+	//connDispatcher, _ := grpc.Dial("127.0.0.1:16444", grpc.WithInsecure())
+	//defer connDispatcher.Close()
+	//clientDispatcher := pb.NewDispatcherClient(connDispatcher)
+	//_, _ = clientDispatcher.UpdateSchedulerView(context.Background(), &pb.SchedulerViewUpdate{List: schelist, Action: "ADD"})
+	//log.Printf("Update Scheduler View %s resp: %d", k, resp.State)
 	// 2. 为scheduler分配管理的node 相关信息
 	schedulerKeys := make([]string, 0, len(informer.Scheduler_map))
 	for key := range informer.Scheduler_map {
@@ -57,10 +59,9 @@ func main() {
 		_, _ = client.UpadateNodeResource(context.Background(), &pb.NodeResourceUpdate{List: list, Action: "ADD"})
 		fmt.Printf("Assign %d nodes to scheduler %s \n", len(list), k)
 	}
-	//os.Exit(0)
 	// 3. 向不同的dispatcher转发请求
 	workload := func_load("../load_generator/data/origin")
-	per_worker := 50 //47
+	per_worker := 25 * 8 //47
 	workers := 40
 	total := per_worker * workers
 	new_workerload, err := random_select(workload, total)
@@ -74,8 +75,8 @@ func main() {
 		dispatcher_urls = append(dispatcher_urls, v)
 		//println("arr:" + v)
 	}
-	//dispatcher_load(per_worker, workers, dispatcher_urls, new_workerload)
-	dispatcher_load(per_worker, workers, sl, new_workerload)
+	dispatcher_load(per_worker, workers, dispatcher_urls, new_workerload)
+	//dispatcher_load(per_worker, workers, sl, new_workerload)
 
 	//select {}
 }
@@ -87,6 +88,7 @@ func dispatcher_load(per_worker, n int, addr []string, workload []int) {
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go dispatcher_thread(i*per_worker, per_worker, addr[i%dispatcher_num], workload[per_worker*i:per_worker*(i+1)], &wg)
+		//go dispatcher_thread(i*per_worker, per_worker, "127.0.0.1", workload[per_worker*i:per_worker*(i+1)], &wg)
 	}
 	wg.Wait()
 	endTime := time.Now()
@@ -99,43 +101,42 @@ func dispatcher_load(per_worker, n int, addr []string, workload []int) {
 func dispatcher_thread(start_index, total int, dispatcher_address string, workload []int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	i := 0
-	fmt.Printf("Thread start_index %d has %d wkload\n", start_index, len(workload))
-	connScheduler, _ := grpc.Dial(dispatcher_address+":16445", grpc.WithInsecure())
-	defer connScheduler.Close()
-	client := pb.NewSchedulerClient(connScheduler)
-	for j := start_index; j < start_index+total; j++ {
-		sr := &pb.ScheduleRequest{
-			RequestId:      int64(j),
-			FuncName:       fmt.Sprintf("Func-%d", j),
-			RequireCpu:     1,
-			RequireMem:     int64(workload[i]),
-			DispatcherAddr: "",
-		}
-		i++
-		_, _ = client.Schedule(context.Background(), sr)
-	}
-	//
-	//connDispatcher, _ := grpc.Dial(dispatcher_address+":16444", grpc.WithInsecure())
-	//defer connDispatcher.Close()
-	//client := pb.NewDispatcherClient(connDispatcher)
-	//l := make([]*pb.UserRequest, 0)
+	fmt.Printf("Thread %s start_index %d has %d wkload\n", dispatcher_address, start_index, len(workload))
+	//connScheduler, _ := grpc.Dial(dispatcher_address+":16445", grpc.WithInsecure())
+	//defer connScheduler.Close()
+	//client := pb.NewSchedulerClient(connScheduler)
 	//for j := start_index; j < start_index+total; j++ {
-	//
-	//	ur := &pb.UserRequest{
-	//		RequestId:  int64(j),
-	//		FuncName:   fmt.Sprintf("Func-%d", j),
-	//		RequireCpu: 1,
-	//		RequireMem: int64(workload[i]),
+	//	sr := &pb.ScheduleRequest{
+	//		RequestId:      int64(j),
+	//		FuncName:       fmt.Sprintf("Func-%d", j),
+	//		RequireCpu:     1,
+	//		RequireMem:     int64(workload[i]),
+	//		DispatcherAddr: "",
 	//	}
 	//	i++
-	//	l = append(l, ur)
-	//	//fmt.Printf("thread %d send request %d\n", start_index, j)
-	//	//if resp.Destination != "" {
-	//	//	//log.Printf("client.scale resp: %s", resp.Destination)
-	//	//}
-	//	//log.Printf("client.scale resp: %s", resp.Destination)
+	//	_, _ = client.Schedule(context.Background(), sr)
 	//}
-	//_, _ = client.Dispatch(context.Background(), &pb.UserRequestList{List: l})
+	//
+	connDispatcher, _ := grpc.Dial(dispatcher_address+":16444", grpc.WithInsecure())
+	defer connDispatcher.Close()
+	client := pb.NewDispatcherClient(connDispatcher)
+	l := make([]*pb.UserRequest, 0)
+	for j := start_index; j < start_index+total; j++ {
+		ur := &pb.UserRequest{
+			RequestId:  int64(j),
+			FuncName:   fmt.Sprintf("Func-%d", j),
+			RequireCpu: 1,
+			RequireMem: int64(workload[i]),
+		}
+		i++
+		l = append(l, ur)
+		//fmt.Printf("thread %d send request %d\n", start_index, j)
+		//if resp.Destination != "" {
+		//	//log.Printf("client.scale resp: %s", resp.Destination)
+		//}
+		//log.Printf("client.scale resp: %s", resp.Destination)
+	}
+	_, _ = client.Dispatch(context.Background(), &pb.UserRequestList{List: l})
 }
 func func_load(filepath string) []int {
 

@@ -30,20 +30,23 @@ func init() {
 
 type SchedulerServer struct{}
 
-func (s SchedulerServer) Schedule(ctx context.Context, request *pb.ScheduleRequest) (*pb.ScheduleReply, error) {
+func (s SchedulerServer) Schedule(ctx context.Context, requests *pb.ScheduleRequestList) (*pb.ScheduleReply, error) {
 	// 根据将请求入列
 	priority := time.Now().UnixNano() / 1e6
-	log.Printf("Scheduler receive -%d- at -%d\n", request.RequestId, priority)
-	//fmt.Printf("Scheduler receive -%d- at -%d\n", request.RequestId, priority)
-	reqestInfo := &internal.RequestInfo{RequestId: request.RequestId, FunctionName: request.FuncName, RequireCpu: request.RequireCpu, RequireMem: request.RequireMem, DispatcherAddr: request.DispatcherAddr}
-	if strings.Contains(request.FuncName, "galaxy-") {
-		priority = 0
+	for _, request := range requests.List {
+		log.Printf("Scheduler receive -%d- at -%d\n", request.RequestId, priority)
+		//fmt.Printf("Scheduler receive -%d- at -%d\n", request.RequestId, priority)
+		reqestInfo := &internal.RequestInfo{RequestId: request.RequestId, FunctionName: request.FuncName, RequireCpu: request.RequireCpu, RequireMem: request.RequireMem, DispatcherAddr: request.DispatcherAddr}
+		if strings.Contains(request.FuncName, "galaxy-") {
+			priority = 0
+		}
+		//fmt.Printf("Receive new %d:%s\n", request.RequestId, request.FuncName)
+		RequestQueue.Push(&internal.RequestItem{reqestInfo, priority})
 	}
-	//fmt.Printf("Receive new %d:%s\n", request.RequestId, request.FuncName)
-	RequestQueue.Push(&internal.RequestItem{reqestInfo, priority})
+
 	return &pb.ScheduleReply{
-		RequestId:      request.RequestId,
-		FuncName:       request.FuncName,
+		RequestId:      0,
+		FuncName:       "",
 		DeployPosition: "",
 	}, nil
 }
@@ -103,7 +106,6 @@ func Schedule() {
 				node.HaveCpu -= it.RequireCpu
 				nodeView.Set(nodeName, node)
 				// deploy to node
-				//fmt.Printf("Decide deploy %d:%s to Node %s\n", it.RequestId, it.FunctionName, nodeName)
 				conn := ConnCache.Get(node.Address)
 				if conn != nil {
 					fmt.Printf("Cache hitted!\n")
@@ -112,7 +114,6 @@ func Schedule() {
 					ConnCache.Put(node.Address, conn)
 					fmt.Printf("Cache miss!\n")
 				}
-
 				clinet := pb.NewNodeClient(conn)
 				_, _ = clinet.Deploy(context.Background(), &pb.InstanceDeploy{List: []*pb.NodeInstanceInfo{
 					{
@@ -121,30 +122,32 @@ func Schedule() {
 						DispatcherAddr: it.DispatcherAddr,
 					},
 				}})
-				//fmt.Printf("deploy -%d-%s to node %s: state:%d at -%d\n", it.RequestId, it.FunctionName, nodeName, resp.State, time.Now().UnixNano()/1e6)
-
 				hasDeployed = true
 				break
 			}
 		}
 		if !hasDeployed {
-			if _, exists := NotDeployed[it.RequestId]; !exists {
-				ur := &pb.UserRequest{
-					RequestId:  it.RequestId,
-					FuncName:   it.FunctionName,
-					RequireCpu: it.RequireCpu,
-					RequireMem: it.RequireMem,
-				}
-				connDispatcher, _ := grpc.Dial(it.DispatcherAddr+":16444", grpc.WithInsecure())
-				defer connDispatcher.Close()
-				client := pb.NewDispatcherClient(connDispatcher)
-				_, _ = client.Dispatch(context.Background(), &pb.UserRequestList{
-					List: []*pb.UserRequest{ur},
-				})
-				NotDeployed[it.RequestId] = struct{}{}
-			} else {
-				fmt.Printf("Scheduler cant find the deployed position for %d:%s.\n", it.RequestId, it.FunctionName)
-			}
+			fmt.Printf("Scheduler cant find the deployed position for %d:%s.\n", it.RequestId, it.FunctionName)
 		}
+
+		//if !hasDeployed {
+		//	if _, exists := NotDeployed[it.RequestId]; !exists {
+		//		ur := &pb.UserRequest{
+		//			RequestId:  it.RequestId,
+		//			FuncName:   it.FunctionName,
+		//			RequireCpu: it.RequireCpu,
+		//			RequireMem: it.RequireMem,
+		//		}
+		//		connDispatcher, _ := grpc.Dial(it.DispatcherAddr+":16444", grpc.WithInsecure())
+		//		defer connDispatcher.Close()
+		//		client := pb.NewDispatcherClient(connDispatcher)
+		//		_, _ = client.Dispatch(context.Background(), &pb.UserRequestList{
+		//			List: []*pb.UserRequest{ur},
+		//		})
+		//		NotDeployed[it.RequestId] = struct{}{}
+		//	} else {
+		//		fmt.Printf("Scheduler cant find the deployed position for %d:%s.\n", it.RequestId, it.FunctionName)
+		//	}
+		//}
 	}
 }

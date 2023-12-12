@@ -4,7 +4,7 @@ option go_package = "./;scheduler_rpc";
 package scheduler;
 
 service Scheduler {
-    rpc Schedule(ScheduleRequest) returns (ScheduleReply){}
+    rpc Schedule(ScheduleRequestList) returns (ScheduleReply){}
     rpc UpadateNodeResource(NodeResourceUpdate) returns(NodeResourceReply){}
 }
 message NodeResource{
@@ -21,14 +21,10 @@ message NodeResourceUpdate{
 message NodeResourceReply{
     int64 state = 1;
 }
+message ScheduleRequestList{
+    repeated ScheduleRequest list = 1;
+}
 
-
-//message funcMessage{
-//    int64 requestId = 1;
-//    string funcName = 2;
-//    int64 requireCpu = 3;
-//    int64 requireMem = 4;
-//}
 message ScheduleRequest {
     int64 requestId = 1;
     string funcName = 2;

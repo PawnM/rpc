@@ -1,59 +1,48 @@
 package server
 
 import (
-	"container/list"
 	"google.golang.org/grpc"
+	"sync"
 )
 
 // LRUCache represents the LRU cache structure.
-type LRUCache struct {
-	capacity int
-	cache    map[string]*list.Element
-	list     *list.List
-}
+type ConnQueue struct {
+	lock  sync.Mutex
+	cond  *sync.Cond
+	items []*grpc.ClientConn
 
-// entry represents a key-value pair in the cache.
-type conn struct {
-	key   string
-	value *grpc.ClientConn
+	len int
 }
 
 // NewLRUCache initializes a new LRU cache with the given capacity.
-func NewLRUCache(capacity int) *LRUCache {
-	return &LRUCache{
-		capacity: capacity,
-		cache:    make(map[string]*list.Element),
-		list:     list.New(),
+func NewConnQueue() *ConnQueue {
+	cq := &ConnQueue{
+		lock: sync.Mutex{},
+
+		items: make([]*grpc.ClientConn, 0),
+		len:   0,
 	}
+	cq.cond = sync.NewCond(&cq.lock)
+	return cq
 }
 
 // Get retrieves the value from the cache for the given key.
-func (lru *LRUCache) Get(key string) *grpc.ClientConn {
-	if elem, exists := lru.cache[key]; exists {
-		lru.list.MoveToFront(elem)
-		return elem.Value.(*conn).value
+func (cq *ConnQueue) Dequeue() *grpc.ClientConn {
+	cq.lock.Lock()
+	defer cq.lock.Unlock()
+	for cq.len == 0 {
+		cq.cond.Wait() // 阻塞等待新元素进入队列
 	}
-	return nil
+	item := cq.items[0]
+	cq.items = cq.items[1:]
+	cq.len--
+	return item
+
 }
-
-// Put inserts a key-value pair into the cache.
-func (lru *LRUCache) Put(key string, value *grpc.ClientConn) {
-	if elem, exists := lru.cache[key]; exists {
-		lru.list.MoveToFront(elem)
-		elem.Value.(*conn).value = value
-	} else {
-		if len(lru.cache) >= lru.capacity {
-			// Remove the least recently used element from the cache
-			oldest := lru.list.Back()
-			if oldest != nil {
-				delete(lru.cache, oldest.Value.(*conn).key)
-				oldest.Value.(*conn).value.Close()
-				lru.list.Remove(oldest)
-			}
-		}
-
-		// Add the new entry to the cache and the front of the list
-		newElem := lru.list.PushFront(&conn{key, value})
-		lru.cache[key] = newElem
-	}
+func (cq *ConnQueue) Enqueue(conn *grpc.ClientConn) {
+	cq.lock.Lock()
+	defer cq.lock.Unlock()
+	cq.items = append(cq.items, conn)
+	cq.len++
+	cq.cond.Signal()
 }
