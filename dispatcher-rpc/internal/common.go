@@ -3,6 +3,7 @@ package internal
 type SchedulerInfo struct {
 	NodeName string
 	Address  string
+	MemLimit int
 }
 type FuncInfo struct {
 	FuncName  string

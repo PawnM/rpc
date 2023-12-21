@@ -26,7 +26,7 @@ func main() {
 	//defer logFile.Close()
 	//log.SetOutput(logFile)
 
-	go server.ResourceUpdate()
+	//go server.ResourceUpdate()
 	go server.Schedule()
 	// 启动rpc server
 	s := grpc.NewServer()

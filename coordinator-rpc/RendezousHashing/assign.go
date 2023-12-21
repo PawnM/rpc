@@ -5,10 +5,11 @@ import (
 	"hash/fnv"
 )
 
-type UpdateInfo struct {
+type TransInfo struct {
 	Action           string
 	NodeResourceList []*NodeResource
-	SchedulerAddr    string
+	SourceAddr       string
+	TargetAddr       string
 }
 
 // HashFunc represents the hash function type
@@ -23,18 +24,13 @@ type NodeResource struct {
 	Hash     uint32
 }
 
-// NewNode creates a new node with a given ID
-func NewNode(name string) *NodeResource {
-	return &NodeResource{
-		NodeName: name,
-		HaveMem:  0,
-		HaveCpu:  0,
-		Address:  "127.0.0.1",
-		Port:     "202",
-	}
+type Scheduler struct {
+	Name string
+	Addr string
+	Hash uint32
 }
 
-type Scheduler struct {
+type Dispatcher struct {
 	Name string
 	Addr string
 	Hash uint32
@@ -46,18 +42,20 @@ func NewScheduler(name string, addr string) *Scheduler {
 
 // RendezvousHashing implements the Rendezvous Hashing algorithm
 type RendezvousHashing struct {
-	Nodes      map[string]*NodeResource
-	Schedulers map[string]*Scheduler
-	SNView     map[string]string // node -> scheduler
-	Hash       HashFunc
+	Nodes       map[string]*NodeResource
+	Schedulers  map[string]*Scheduler
+	Dispatchers map[string]*Dispatcher
+	SNView      map[string]string // node -> scheduler
+	Hash        HashFunc
 }
 
 func NewRendezvousHashing() *RendezvousHashing {
 	return &RendezvousHashing{
-		Nodes:      make(map[string]*NodeResource),
-		Schedulers: make(map[string]*Scheduler),
-		SNView:     make(map[string]string),
-		Hash:       fnvHash,
+		Nodes:       make(map[string]*NodeResource),
+		Schedulers:  make(map[string]*Scheduler),
+		Dispatchers: make(map[string]*Dispatcher),
+		SNView:      make(map[string]string),
+		Hash:        fnvHash,
 	}
 }
 func (rh *RendezvousHashing) Statisics() {
@@ -92,12 +90,11 @@ func findMinMaxValues(myMap map[string]int) (int, int) {
 			maxValue = value
 		}
 	}
-
 	return minValue, maxValue
 }
 
 // AddNode adds a node to the RendezvousHashing instance
-func (rh *RendezvousHashing) AddNode(node *NodeResource) []*UpdateInfo {
+func (rh *RendezvousHashing) AddNode(node *NodeResource) []*TransInfo {
 
 	var selectedScheduler *Scheduler
 	maxHash := uint32(0)
@@ -113,32 +110,44 @@ func (rh *RendezvousHashing) AddNode(node *NodeResource) []*UpdateInfo {
 	rh.Nodes[node.NodeName] = node
 	// inform the scheduler to add the node
 	rh.SNView[node.NodeName] = selectedScheduler.Name
-	actions := make([]*UpdateInfo, 1)
-	actions[0] = &UpdateInfo{
+	actions := make([]*TransInfo, 1)
+	actions[0] = &TransInfo{
 		Action:           "ADD",
 		NodeResourceList: []*NodeResource{node},
-		SchedulerAddr:    selectedScheduler.Addr,
+		SourceAddr:       selectedScheduler.Addr,
+		TargetAddr:       "0.0.0.0",
 	}
 	return actions
 }
-func (rh *RendezvousHashing) DeleteNode(node *NodeResource) []*UpdateInfo {
+func (rh *RendezvousHashing) DeleteNode(node *NodeResource) []*TransInfo {
 	sname := rh.SNView[node.NodeName]
 	s := rh.Schedulers[sname]
 	// 获取原scheduler
 	delete(rh.SNView, node.NodeName)
 	delete(rh.Nodes, node.NodeName)
 	// inform the scheduler to delete the node
-	return []*UpdateInfo{
-		&UpdateInfo{
-			Action:           "DEL",
+	return []*TransInfo{
+		&TransInfo{
+			Action:           "DELETE",
 			NodeResourceList: []*NodeResource{node},
-			SchedulerAddr:    s.Addr,
+			SourceAddr:       s.Addr,
+			TargetAddr:       "0.0.0.0",
 		},
 	}
 }
+func (rh *RendezvousHashing) GetSchedulerNameByAddr(addr string) string {
+	sname := ""
+	for k, v := range rh.Schedulers {
+		if v.Addr == addr {
+			sname = k
+			break
+		}
+	}
+	return sname
+}
 
-func (rh *RendezvousHashing) AddScheduler(scheduler *Scheduler) []*UpdateInfo {
-	actions := make([]*UpdateInfo, 0)
+func (rh *RendezvousHashing) AddScheduler(scheduler *Scheduler) []*TransInfo {
+	actions := make([]*TransInfo, 0)
 	rh.Schedulers[scheduler.Name] = scheduler
 	for nodeName, nodeResource := range rh.Nodes {
 		hash := rh.Hash(scheduler.Name + nodeName)
@@ -147,24 +156,20 @@ func (rh *RendezvousHashing) AddScheduler(scheduler *Scheduler) []*UpdateInfo {
 		if hash > nodeResource.Hash {
 			oldScheduler := rh.Schedulers[rh.SNView[nodeName]]
 			// remove the node from the schueduler
-			actions = append(actions, &UpdateInfo{
-				Action:           "DEL",
+			actions = append(actions, &TransInfo{
+				Action:           "DELETE",
 				NodeResourceList: []*NodeResource{nodeResource},
-				SchedulerAddr:    oldScheduler.Addr,
+				SourceAddr:       oldScheduler.Addr,
+				TargetAddr:       scheduler.Addr,
 			})
 			nodeResource.Hash = hash
-			actions = append(actions, &UpdateInfo{
-				Action:           "ADD",
-				NodeResourceList: []*NodeResource{nodeResource},
-				SchedulerAddr:    scheduler.Addr,
-			})
 			rh.SNView[nodeName] = scheduler.Name
 		}
 	}
 	return actions
 }
-func (rh *RendezvousHashing) DeleteScheduler(scheduler *Scheduler) []*UpdateInfo {
-	actions := make([]*UpdateInfo, 0)
+func (rh *RendezvousHashing) DeleteScheduler(scheduler *Scheduler) []*TransInfo {
+	actions := make([]*TransInfo, 0)
 
 	reBalanceNode := make([]*NodeResource, 0)
 	for nname, sname := range rh.SNView {
@@ -183,6 +188,14 @@ func (rh *RendezvousHashing) DeleteScheduler(scheduler *Scheduler) []*UpdateInfo
 	}
 
 	return actions
+}
+func (rh *RendezvousHashing) AddDispatcher(dispatcher *Dispatcher) []*Scheduler {
+	rh.Dispatchers[dispatcher.Addr] = dispatcher
+	schedulers := make([]*Scheduler, 0)
+	for _, v := range rh.Schedulers {
+		schedulers = append(schedulers, v)
+	}
+	return schedulers
 }
 
 // fnvHash is a simple hash function using FNV-1a algorithm

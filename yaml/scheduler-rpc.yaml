@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: scheduler-deployment
 spec:
-  replicas: 70
+  replicas: 20
   selector:
     matchLabels:
       app: scheduler

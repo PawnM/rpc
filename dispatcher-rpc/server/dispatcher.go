@@ -17,8 +17,6 @@ var (
 	localIp       = getLocalIPv4().String()
 	connQueue     = NewConnQueue()
 	firstInit     = true
-	//requestIdList = make([]int64, 0)
-	//lock          = &sync.Mutex{}
 )
 
 type DispatcherServer struct{}
@@ -67,7 +65,8 @@ func addConn(n int) {
 }
 func (d DispatcherServer) Dispatch(ctx context.Context, userRequests *pb.UserRequestList) (*pb.UserRequestReply, error) {
 	t := time.Now().UnixNano() / 1e6
-	per_scheduler := 20
+	per_scheduler := len(userRequests.List) / SchedulerView.GetLen()
+	per_scheduler = per_scheduler / 2
 	schedulerRequests := make([]*pb.ScheduleRequest, 0)
 	for _, request := range userRequests.List {
 		result := funcView.Dispatch(request.FuncName)
@@ -87,6 +86,7 @@ func (d DispatcherServer) Dispatch(ctx context.Context, userRequests *pb.UserReq
 			if len(schedulerRequests) >= per_scheduler {
 				c := connQueue.Dequeue()
 				client := pb.NewSchedulerClient(c)
+				//fmt.Printf("Route %d requests to %s\n",len(schedulerRequests),c.GetMethodConfig().)
 				_, _ = client.Schedule(context.Background(), &pb.ScheduleRequestList{List: schedulerRequests})
 				go addConn(2)
 				schedulerRequests = make([]*pb.ScheduleRequest, 0)
@@ -117,13 +117,14 @@ func (d DispatcherServer) UpdateSchedulerView(ctx context.Context, update *pb.Sc
 		if update.Action == "ADD" {
 			fmt.Printf("Add new scheduelr %s:%s\n", item.NodeName, item.Address)
 			SchedulerView.Add(item)
-			if firstInit && SchedulerView.GetLen() >= 20 {
-				go addConn(20)
-				firstInit = false
-			}
+
 		} else if update.Action == "DELETE" {
 			SchedulerView.Delete(item)
 		}
+	}
+	if firstInit {
+		go addConn(20)
+		firstInit = false
 	}
 	return &pb.SchedulerViewUpdateReply{State: 0}, nil
 }

@@ -6,7 +6,23 @@ package scheduler;
 service Scheduler {
     rpc Schedule(ScheduleRequestList) returns (ScheduleReply){}
     rpc UpadateNodeResource(NodeResourceUpdate) returns(NodeResourceReply){}
+    rpc PeerSchedule(ScheduleRequest) returns (ScheduleReply){}
+    rpc PeerSchedulerUpdate(PeerSchedulersUpdate) returns (PeerSchedulersUpdateReply){}
 }
+
+message PeerSchedulerInfo{
+    string NodeName = 1;
+    string Address = 2;
+}
+message PeerSchedulersUpdate{
+    repeated PeerSchedulerInfo List = 1;
+    string Action = 2;
+}
+
+message PeerSchedulersUpdateReply{
+    int64 State = 1;
+}
+
 message NodeResource{
     string nodeName = 1;
     int64 haveCpu = 2;
@@ -17,6 +33,8 @@ message NodeResource{
 message NodeResourceUpdate{
     repeated NodeResource list = 1;
     string Action = 2;
+    string SourceAddr = 3;
+    string TargetAddr = 4;
 }
 message NodeResourceReply{
     int64 state = 1;

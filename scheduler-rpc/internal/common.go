@@ -1,5 +1,10 @@
 package internal
 
+type SchedulerInfo struct {
+	NodeName string
+	Address  string
+	MemLimit int64
+}
 type NodeResource struct {
 	NodeName string
 	HaveCpu  int64

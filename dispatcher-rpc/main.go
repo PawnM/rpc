@@ -15,8 +15,8 @@ var (
 func init() {
 	flag.StringVar(&port, "p", "16444", "启动端口号")
 	flag.Parse()
-
 }
+
 func main() {
 	//logFile, err := os.OpenFile("./logs/log.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	//if err != nil {

@@ -7,27 +7,30 @@ package dispatcher;
 // 2. 调用扩容请求
 // 3. 更新调度器视图
 service coordinator {
-  rpc AddNodeInfo(NodeInfoUpdate) returns (NodeUpdateReply){}
+  rpc AddNodeInfo(NodeInfoUpdate) returns (CoordinatorReply){}
+  rpc AddSchedulerInfo(SchedulerInfoUpdate) returns (CoordinatorReply){}
+  rpc AddDispatcherInfo(DispatcherInfoUpdate) returns (CoordinatorReply){}
 }
 message NodeInfoUpdate{
   string NodeName = 1;
   string Address = 2;
+  int64 HaveCpu = 3;
+  int64 HaveMem = 4;
 }
-message NodeUpdateReply{
-  int64 state = 1;
-}
-message FuncInfoUpdate{
 
-}
-message FuncUpdateReply{
-
+message SchedulerInfoUpdate{
+  string SchedulerName = 1;
+  string Address = 2;
 }
 
 message DispatcherInfoUpdate{
-
+  string SchedulerName = 1;
+  string Address = 2;
 }
-message DispatcherUpdateReply{
-  
+
+message CoordinatorReply{
+  int64 state = 1;
+  string message = 2;
 }
 
 
